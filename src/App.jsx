@@ -19,9 +19,9 @@ const OPPOSITE_BOX = {
 
 const BOX_IDS = ["topLeft", "topRight", "bottomLeft", "bottomRight"];
 const MIN_ARM_SIZE = 20;
-const MAX_ARM_SIZE = 100;
+const MAX_ARM_SIZE = 200;
 const MIN_ARM_THICKNESS = 2;
-const MAX_ARM_THICKNESS = 100;
+const MAX_ARM_THICKNESS = 200;
 const EXPORT_CANVAS_ID = "banner-export-canvas";
 const EXPORT_PIXEL_RATIO = 2;
 const GOOGLE_FONTS_API_ENDPOINT = "/.netlify/functions/google-fonts";
@@ -86,8 +86,6 @@ const DEFAULT_BOXES = {
   bottomRight: { size: 50, thickness: 10, hLength: 50, vLength: 50, hThickness: 10, vThickness: 10, enabled: false }
 };
 
-const limitToThreeLines = (value) => value.split(/\r?\n/).slice(0, 3).join("\n");
-
 const syncLinkedPairs = (boxState) => normalizeBoxesState({
   ...boxState,
   bottomRight: {
@@ -146,7 +144,7 @@ function App() {
   };
 
   const handleTextChange = (value) => {
-    setCenterText(limitToThreeLines(value));
+    setCenterText(value);
   };
 
   const handleLinkedMovementChange = (nextValue) => {

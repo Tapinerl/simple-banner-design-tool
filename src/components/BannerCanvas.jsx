@@ -3,9 +3,9 @@ import ColorControl from "./ColorControl";
 
 const TEXT_PADDING = 24;
 const MIN_ARM_SIZE = 20;
-const MAX_ARM_SIZE = 100;
+const MAX_ARM_SIZE = 200;
 const MIN_ARM_THICKNESS = 2;
-const MAX_ARM_THICKNESS = 100;
+const MAX_ARM_THICKNESS = 200;
 const SNAP_THRESHOLD = 2;
 const MIN_FONT_SIZE = 18;
 const MAX_FONT_SIZE = 110;
@@ -22,8 +22,6 @@ const snapToBoundary = (value, min, max) => {
   }
   return value;
 };
-const limitToThreeLines = (value) => value.split(/\r?\n/).slice(0, 3).join("\n");
-
 const getArmValues = (box) => {
   const hLength = box?.hLength ?? box?.size ?? 50;
   const vLength = box?.vLength ?? box?.size ?? 50;
@@ -64,7 +62,7 @@ const toCanvasPercent = (corner, localX, localY) => {
   return { x: 100 - localX, y: 100 - localY };
 };
 
-const getHandlePositions = (corner, arms) => {
+const getHandlePositions = (corner, arms, toCanvasXPercent, toCanvasYPercent) => {
   const local = {
     corner: { x: arms.vThickness, y: arms.hThickness },
     hLength: { x: arms.hLength, y: arms.hThickness / 2 },
@@ -74,11 +72,16 @@ const getHandlePositions = (corner, arms) => {
   };
 
   return Object.fromEntries(
-    Object.entries(local).map(([key, value]) => [key, toCanvasPercent(corner, value.x, value.y)])
+    Object.entries(local).map(([key, value]) => [
+      key,
+      toCanvasPercent(corner, toCanvasXPercent(value.x), toCanvasYPercent(value.y))
+    ])
   );
 };
 
 const getOpposingCenterRegion = (boxes, width, height) => {
+  const minDimension = Math.max(1, Math.min(width, height));
+  const unitToPixels = (value) => (value / 100) * minDimension;
   const hasTrBl = boxes.topRight?.enabled && boxes.bottomLeft?.enabled;
   const hasTlBr = boxes.topLeft?.enabled && boxes.bottomRight?.enabled;
 
@@ -87,13 +90,13 @@ const getOpposingCenterRegion = (boxes, width, height) => {
     const bl = getArmValues(boxes.bottomLeft);
     const trPoint = {
       // Concave inner corner of top-right L
-      x: width - (tr.vThickness / 100) * width,
-      y: (tr.hThickness / 100) * height
+      x: width - unitToPixels(tr.vThickness),
+      y: unitToPixels(tr.hThickness)
     };
     const blPoint = {
       // Concave inner corner of bottom-left L
-      x: (bl.vThickness / 100) * width,
-      y: height - (bl.hThickness / 100) * height
+      x: unitToPixels(bl.vThickness),
+      y: height - unitToPixels(bl.hThickness)
     };
 
     const left = Math.min(trPoint.x, blPoint.x);
@@ -108,13 +111,13 @@ const getOpposingCenterRegion = (boxes, width, height) => {
     const br = getArmValues(boxes.bottomRight);
     const tlPoint = {
       // Concave inner corner of top-left L
-      x: (tl.vThickness / 100) * width,
-      y: (tl.hThickness / 100) * height
+      x: unitToPixels(tl.vThickness),
+      y: unitToPixels(tl.hThickness)
     };
     const brPoint = {
       // Concave inner corner of bottom-right L
-      x: width - (br.vThickness / 100) * width,
-      y: height - (br.hThickness / 100) * height
+      x: width - unitToPixels(br.vThickness),
+      y: height - unitToPixels(br.hThickness)
     };
 
     const left = Math.min(tlPoint.x, brPoint.x);
@@ -164,6 +167,7 @@ function BannerCanvas({
     width: null,
     height: null
   });
+  const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
 
   const [ratioWidth, ratioHeight] = aspectRatio.split("/").map((value) => Number(value.trim()));
   const ratioNumber = ratioWidth && ratioHeight ? ratioWidth / ratioHeight : 16 / 9;
@@ -214,6 +218,16 @@ function BannerCanvas({
     selection.addRange(range);
   };
 
+  const minCanvasDimension = Math.max(1, Math.min(canvasSize.width, canvasSize.height));
+  const toCanvasXPercent = useCallback(
+    (value) => (value / 100) * (minCanvasDimension / Math.max(1, canvasSize.width)) * 100,
+    [canvasSize.width, minCanvasDimension]
+  );
+  const toCanvasYPercent = useCallback(
+    (value) => (value / 100) * (minCanvasDimension / Math.max(1, canvasSize.height)) * 100,
+    [canvasSize.height, minCanvasDimension]
+  );
+
   const updateTextSizing = useCallback(() => {
     const canvasNode = canvasRef.current;
     if (!canvasNode) {
@@ -221,6 +235,15 @@ function BannerCanvas({
     }
 
     const { width: canvasWidth, height: canvasHeight } = canvasNode.getBoundingClientRect();
+    setCanvasSize((prev) => {
+      if (
+        Math.abs(prev.width - canvasWidth) < 0.5 &&
+        Math.abs(prev.height - canvasHeight) < 0.5
+      ) {
+        return prev;
+      }
+      return { width: canvasWidth, height: canvasHeight };
+    });
     const region = getOpposingCenterRegion(boxes, canvasWidth, canvasHeight);
 
     const rawLeft = Math.min(region.left, region.right);
@@ -284,24 +307,25 @@ function BannerCanvas({
 
       const rect = canvasRef.current.getBoundingClientRect();
       const local = getLocalFromCorner(corner, event.clientX, event.clientY, rect);
+      const minDimension = Math.max(1, Math.min(rect.width, rect.height));
 
       const nextLengthX = snapToBoundary(
-        clamp(Math.round((local.x / rect.width) * 100), MIN_ARM_SIZE, MAX_ARM_SIZE),
+        clamp(Math.round((local.x / minDimension) * 100), MIN_ARM_SIZE, MAX_ARM_SIZE),
         MIN_ARM_SIZE,
         MAX_ARM_SIZE
       );
       const nextLengthY = snapToBoundary(
-        clamp(Math.round((local.y / rect.height) * 100), MIN_ARM_SIZE, MAX_ARM_SIZE),
+        clamp(Math.round((local.y / minDimension) * 100), MIN_ARM_SIZE, MAX_ARM_SIZE),
         MIN_ARM_SIZE,
         MAX_ARM_SIZE
       );
       const nextThicknessX = snapToBoundary(
-        clamp(Math.round((local.x / rect.width) * 100), MIN_ARM_THICKNESS, MAX_ARM_THICKNESS),
+        clamp(Math.round((local.x / minDimension) * 100), MIN_ARM_THICKNESS, MAX_ARM_THICKNESS),
         MIN_ARM_THICKNESS,
         MAX_ARM_THICKNESS
       );
       const nextThicknessY = snapToBoundary(
-        clamp(Math.round((local.y / rect.height) * 100), MIN_ARM_THICKNESS, MAX_ARM_THICKNESS),
+        clamp(Math.round((local.y / minDimension) * 100), MIN_ARM_THICKNESS, MAX_ARM_THICKNESS),
         MIN_ARM_THICKNESS,
         MAX_ARM_THICKNESS
       );
@@ -400,12 +424,7 @@ function BannerCanvas({
     if (!onTextChange) {
       return;
     }
-    const nextText = limitToThreeLines(event.currentTarget.innerText);
-    if (event.currentTarget.innerText !== nextText) {
-      event.currentTarget.innerText = nextText;
-      placeEditorCaretToEnd(event.currentTarget);
-    }
-    onTextChange(nextText);
+    onTextChange(event.currentTarget.innerText);
   };
 
   const insertLineBreakAtCursor = () => {
@@ -448,7 +467,7 @@ function BannerCanvas({
     const arms = getArmValues(box);
     const isFocused = activeCorner === key;
     const isSelected = selectedCorner === key;
-    const handlePositions = getHandlePositions(key, arms);
+    const handlePositions = getHandlePositions(key, arms, toCanvasXPercent, toCanvasYPercent);
 
     return (
       <>
@@ -458,8 +477,8 @@ function BannerCanvas({
           } drag-corner-cursor`}
           style={{
             ...armStyle(key),
-            width: `${arms.hLength}%`,
-            height: `${arms.hThickness}%`
+            width: `${toCanvasXPercent(arms.hLength)}%`,
+            height: `${toCanvasYPercent(arms.hThickness)}%`
           }}
           onPointerDown={(event) => startDrag(key, "corner", event)}
         />
@@ -469,8 +488,8 @@ function BannerCanvas({
           } drag-corner-cursor`}
           style={{
             ...armStyle(key),
-            width: `${arms.vThickness}%`,
-            height: `${arms.vLength}%`
+            width: `${toCanvasXPercent(arms.vThickness)}%`,
+            height: `${toCanvasYPercent(arms.vLength)}%`
           }}
           onPointerDown={(event) => startDrag(key, "corner", event)}
         />
@@ -531,12 +550,12 @@ function BannerCanvas({
   };
 
   return (
-    <section className="canvas-shell">
-      <div className="canvas-frame">
+    <section className={`canvas-shell ${isTextEditing ? "is-text-editing" : ""}`}>
+      <div className={`canvas-frame ${isTextEditing ? "is-text-editing" : ""}`}>
         <div
           ref={canvasRef}
           id={canvasId}
-          className="banner-canvas"
+          className={`banner-canvas ${isTextEditing ? "is-text-editing" : ""}`}
           style={{ ...canvasStyle, ...sizingStyle, aspectRatio }}
           onPointerDown={handleCanvasPointerDown}
         >
@@ -627,13 +646,9 @@ function BannerCanvas({
 
                   if (event.key === "Enter") {
                     event.preventDefault();
-                    const currentLineCount = event.currentTarget.innerText.split(/\r?\n/).length;
-                    if (currentLineCount >= 3) {
-                      return;
-                    }
                     const inserted = insertLineBreakAtCursor();
                     if (inserted) {
-                      onTextChange?.(limitToThreeLines(event.currentTarget.innerText));
+                      onTextChange?.(event.currentTarget.innerText);
                     }
                   }
                 }}
