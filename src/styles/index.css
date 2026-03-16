@@ -1,0 +1,25 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+  background: #f4f5f7;
+  color: #111827;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
