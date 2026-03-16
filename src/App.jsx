@@ -24,8 +24,7 @@ const MIN_ARM_THICKNESS = 2;
 const MAX_ARM_THICKNESS = 100;
 const EXPORT_CANVAS_ID = "banner-export-canvas";
 const EXPORT_PIXEL_RATIO = 2;
-const GOOGLE_FONTS_API_KEY = import.meta.env.VITE_GOOGLE_FONTS_API_KEY;
-const GOOGLE_FONTS_API_URL = "https://www.googleapis.com/webfonts/v1/webfonts";
+const GOOGLE_FONTS_API_ENDPOINT = "/.netlify/functions/google-fonts";
 const GOOGLE_FONT_LIMIT = 40;
 
 const LOCAL_FONT_OPTIONS = [
@@ -218,23 +217,17 @@ function App() {
   };
 
   useEffect(() => {
-    if (!GOOGLE_FONTS_API_KEY) {
-      return;
-    }
-
     let isMounted = true;
 
     const loadGoogleFonts = async () => {
       try {
-        const response = await fetch(
-          `${GOOGLE_FONTS_API_URL}?key=${GOOGLE_FONTS_API_KEY}&sort=popularity`
-        );
+        const response = await fetch(`${GOOGLE_FONTS_API_ENDPOINT}?limit=${GOOGLE_FONT_LIMIT}`);
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
 
         const payload = await response.json();
-        const googleOptions = (payload.items ?? []).slice(0, GOOGLE_FONT_LIMIT).map((font) => ({
+        const googleOptions = (payload.items ?? []).map((font) => ({
           label: font.family,
           value: toGoogleFontValue(font.family, font.category),
           source: "google",
