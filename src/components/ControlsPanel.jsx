@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import ColorControl from "./ColorControl";
 
 function ControlsPanel({
@@ -22,8 +23,15 @@ function ControlsPanel({
   linkedMovement,
   onLinkedMovementChange,
   activeDiagonal,
-  onFlipBoxes
+  onFlipBoxes,
+  onExportPng,
+  onExportJpg,
+  onExportSvg,
+  onCopyToClipboard,
+  isExporting,
+  exportMessage
 }) {
+  const backgroundFileInputRef = useRef(null);
   const activePairLabel =
     activeDiagonal === "tr-bl" ? "Top Right + Bottom Left" : "Top Left + Bottom Right";
 
@@ -31,7 +39,7 @@ function ControlsPanel({
     <aside className="controls-panel">
       <div className="panel-title">
         <h2>Controls</h2>
-        <p>Drag arm handles and click center text on the canvas to edit it.</p>
+        <p>Drag L-boxes, use handles to resize, and click center text to edit it.</p>
       </div>
 
       <section className="panel-section">
@@ -49,8 +57,12 @@ function ControlsPanel({
         <label>
           Background Image
           <input
+            ref={backgroundFileInputRef}
             type="file"
             accept="image/*"
+            onClick={(event) => {
+              event.currentTarget.value = "";
+            }}
             onChange={(event) => onBackgroundImageUpload(event.target.files?.[0])}
           />
         </label>
@@ -90,7 +102,16 @@ function ControlsPanel({
               />
               <span>{backgroundImageOffsetY}%</span>
             </label>
-            <button type="button" className="clear-image-button" onClick={onClearBackgroundImage}>
+            <button
+              type="button"
+              className="clear-image-button"
+              onClick={() => {
+                if (backgroundFileInputRef.current) {
+                  backgroundFileInputRef.current.value = "";
+                }
+                onClearBackgroundImage();
+              }}
+            >
               Remove Uploaded Image
             </button>
           </>
@@ -148,6 +169,25 @@ function ControlsPanel({
         <button type="button" className="clear-image-button" onClick={onFlipBoxes}>
           Flip Boxes
         </button>
+      </section>
+
+      <section className="panel-section">
+        <h3>Export</h3>
+        <div className="export-actions">
+          <button type="button" className="clear-image-button" onClick={onExportPng} disabled={isExporting}>
+            Export PNG
+          </button>
+          <button type="button" className="clear-image-button" onClick={onExportJpg} disabled={isExporting}>
+            Export JPG
+          </button>
+          <button type="button" className="clear-image-button" onClick={onExportSvg} disabled={isExporting}>
+            Export SVG
+          </button>
+          <button type="button" className="clear-image-button" onClick={onCopyToClipboard} disabled={isExporting}>
+            Copy to Clipboard
+          </button>
+        </div>
+        {exportMessage && <p className="export-feedback">{exportMessage}</p>}
       </section>
     </aside>
   );

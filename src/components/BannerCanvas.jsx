@@ -3,23 +3,25 @@ import ColorControl from "./ColorControl";
 
 const TEXT_PADDING = 24;
 const MIN_ARM_SIZE = 20;
-const MAX_ARM_SIZE = 98;
+const MAX_ARM_SIZE = 100;
 const MIN_ARM_THICKNESS = 2;
-const MAX_ARM_THICKNESS = 96;
-const EDGE_DETECT_PX = 12;
+const MAX_ARM_THICKNESS = 100;
+const SNAP_THRESHOLD = 2;
 const MIN_FONT_SIZE = 18;
 const MAX_FONT_SIZE = 110;
 const MIN_FONT_WEIGHT = 100;
 const MAX_FONT_WEIGHT = 900;
-const FONT_FAMILY_OPTIONS = [
-  { label: "Trebuchet", value: '"Trebuchet MS", "Segoe UI", sans-serif' },
-  { label: "Georgia", value: 'Georgia, "Times New Roman", serif' },
-  { label: "Verdana", value: 'Verdana, Geneva, sans-serif' },
-  { label: "Arial", value: 'Arial, Helvetica, sans-serif' },
-  { label: "Courier", value: '"Courier New", Courier, monospace' }
-];
 
 const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
+const snapToBoundary = (value, min, max) => {
+  if (Math.abs(value - min) <= SNAP_THRESHOLD) {
+    return min;
+  }
+  if (Math.abs(max - value) <= SNAP_THRESHOLD) {
+    return max;
+  }
+  return value;
+};
 const limitToThreeLines = (value) => value.split(/\r?\n/).slice(0, 3).join("\n");
 
 const getArmValues = (box) => {
@@ -47,6 +49,33 @@ const getLocalFromCorner = (corner, clientX, clientY, rect) => {
     return { x: clientX - rect.left, y: rect.bottom - clientY };
   }
   return { x: rect.right - clientX, y: rect.bottom - clientY };
+};
+
+const toCanvasPercent = (corner, localX, localY) => {
+  if (corner === "topLeft") {
+    return { x: localX, y: localY };
+  }
+  if (corner === "topRight") {
+    return { x: 100 - localX, y: localY };
+  }
+  if (corner === "bottomLeft") {
+    return { x: localX, y: 100 - localY };
+  }
+  return { x: 100 - localX, y: 100 - localY };
+};
+
+const getHandlePositions = (corner, arms) => {
+  const local = {
+    corner: { x: arms.vThickness, y: arms.hThickness },
+    hLength: { x: arms.hLength, y: arms.hThickness / 2 },
+    vLength: { x: arms.vThickness / 2, y: arms.vLength },
+    hThickness: { x: (arms.hLength + arms.vThickness) / 2, y: arms.hThickness },
+    vThickness: { x: arms.vThickness, y: (arms.vLength + arms.hThickness) / 2 }
+  };
+
+  return Object.fromEntries(
+    Object.entries(local).map(([key, value]) => [key, toCanvasPercent(corner, value.x, value.y)])
+  );
 };
 
 const getOpposingCenterRegion = (boxes, width, height) => {
@@ -114,16 +143,17 @@ function BannerCanvas({
   fontWeight,
   onFontWeightChange,
   fontFamily,
+  fontOptions = [],
   onFontFamilyChange,
   boxes,
   onBoxChange,
   boxColor,
-  cornerRadius
+  cornerRadius,
+  canvasId = "banner-export-canvas"
 }) {
   const canvasRef = useRef(null);
   const textEditorRef = useRef(null);
   const dragRef = useRef(null);
-  const [hoverState, setHoverState] = useState({ corner: null, mode: "size" });
   const [selectedCorner, setSelectedCorner] = useState(null);
   const [isTextEditing, setIsTextEditing] = useState(false);
   const activeCorner = selectedCorner;
@@ -246,7 +276,7 @@ function BannerCanvas({
         return;
       }
 
-      const { corner, field, axis } = dragRef.current;
+      const { corner, field } = dragRef.current;
       const box = boxes[corner];
       if (!box?.enabled) {
         return;
@@ -255,19 +285,46 @@ function BannerCanvas({
       const rect = canvasRef.current.getBoundingClientRect();
       const local = getLocalFromCorner(corner, event.clientX, event.clientY, rect);
 
-      if (field === "hLength" || field === "vLength") {
-        const minLength = MIN_ARM_SIZE;
-        const nextLength =
-          axis === "x"
-            ? clamp(Math.round((local.x / rect.width) * 100), minLength, MAX_ARM_SIZE)
-            : clamp(Math.round((local.y / rect.height) * 100), minLength, MAX_ARM_SIZE);
-        onBoxChange(corner, field, nextLength);
-      } else {
-        const nextThickness =
-          axis === "x"
-            ? clamp(Math.round((local.x / rect.width) * 100), MIN_ARM_THICKNESS, MAX_ARM_THICKNESS)
-            : clamp(Math.round((local.y / rect.height) * 100), MIN_ARM_THICKNESS, MAX_ARM_THICKNESS);
-        onBoxChange(corner, field, nextThickness);
+      const nextLengthX = snapToBoundary(
+        clamp(Math.round((local.x / rect.width) * 100), MIN_ARM_SIZE, MAX_ARM_SIZE),
+        MIN_ARM_SIZE,
+        MAX_ARM_SIZE
+      );
+      const nextLengthY = snapToBoundary(
+        clamp(Math.round((local.y / rect.height) * 100), MIN_ARM_SIZE, MAX_ARM_SIZE),
+        MIN_ARM_SIZE,
+        MAX_ARM_SIZE
+      );
+      const nextThicknessX = snapToBoundary(
+        clamp(Math.round((local.x / rect.width) * 100), MIN_ARM_THICKNESS, MAX_ARM_THICKNESS),
+        MIN_ARM_THICKNESS,
+        MAX_ARM_THICKNESS
+      );
+      const nextThicknessY = snapToBoundary(
+        clamp(Math.round((local.y / rect.height) * 100), MIN_ARM_THICKNESS, MAX_ARM_THICKNESS),
+        MIN_ARM_THICKNESS,
+        MAX_ARM_THICKNESS
+      );
+
+      if (field === "corner") {
+        if (box.hLength !== nextLengthX) {
+          onBoxChange(corner, "hLength", nextLengthX);
+        }
+        if (box.vLength !== nextLengthY) {
+          onBoxChange(corner, "vLength", nextLengthY);
+        }
+        return;
+      }
+
+      const valueByField = {
+        hLength: nextLengthX,
+        vLength: nextLengthY,
+        hThickness: nextThicknessY,
+        vThickness: nextThicknessX
+      };
+      const nextValue = valueByField[field];
+      if (typeof nextValue === "number" && box[field] !== nextValue) {
+        onBoxChange(corner, field, nextValue);
       }
     };
 
@@ -294,7 +351,6 @@ function BannerCanvas({
 
       if (!canvasRef.current.contains(event.target)) {
         setSelectedCorner(null);
-        setHoverState({ corner: null, mode: "size" });
         setIsTextEditing(false);
       }
     };
@@ -305,108 +361,21 @@ function BannerCanvas({
     };
   }, []);
 
-  const getDragIntent = (corner, event) => {
-    if (!canvasRef.current) {
-      return { mode: "length", axis: "x", field: "hLength" };
-    }
-
-    const box = boxes[corner];
-    if (!box?.enabled) {
-      return { mode: "length", axis: "x", field: "hLength" };
-    }
-    const arms = getArmValues(box);
-
-    const rect = canvasRef.current.getBoundingClientRect();
-    const local = getLocalFromCorner(corner, event.clientX, event.clientY, rect);
-    const hLengthPx = (arms.hLength / 100) * rect.width;
-    const vLengthPx = (arms.vLength / 100) * rect.height;
-    const hThicknessPx = (arms.hThickness / 100) * rect.height;
-    const vThicknessPx = (arms.vThickness / 100) * rect.width;
-
-    const inHorizontal = local.x >= 0 && local.x <= hLengthPx && local.y >= 0 && local.y <= hThicknessPx;
-    const inVertical = local.x >= 0 && local.x <= vThicknessPx && local.y >= 0 && local.y <= vLengthPx;
-
-    let side = "horizontal";
-    if (inHorizontal && !inVertical) {
-      side = "horizontal";
-    } else if (!inHorizontal && inVertical) {
-      side = "vertical";
-    } else if (inHorizontal && inVertical) {
-      const horizontalProgress = local.x / Math.max(hLengthPx, 1);
-      const verticalProgress = local.y / Math.max(vLengthPx, 1);
-      side = horizontalProgress >= verticalProgress ? "horizontal" : "vertical";
-    } else {
-      side = local.x >= local.y ? "horizontal" : "vertical";
-    }
-
-    if (side === "horizontal") {
-      const nearThicknessEdge = Math.abs(local.y - hThicknessPx) <= EDGE_DETECT_PX;
-      const nearLengthEdge = Math.abs(local.x - hLengthPx) <= EDGE_DETECT_PX;
-
-      if (nearThicknessEdge && !nearLengthEdge) {
-        return { mode: "thickness", axis: "y", field: "hThickness" };
-      }
-      if (nearLengthEdge && !nearThicknessEdge) {
-        return { mode: "length", axis: "x", field: "hLength" };
-      }
-      if (nearThicknessEdge && nearLengthEdge) {
-        return Math.abs(local.y - hThicknessPx) < Math.abs(local.x - hLengthPx)
-          ? { mode: "thickness", axis: "y", field: "hThickness" }
-          : { mode: "length", axis: "x", field: "hLength" };
-      }
-      return { mode: "length", axis: "x", field: "hLength" };
-    }
-
-    const nearThicknessEdge = Math.abs(local.x - vThicknessPx) <= EDGE_DETECT_PX;
-    const nearLengthEdge = Math.abs(local.y - vLengthPx) <= EDGE_DETECT_PX;
-
-    if (nearThicknessEdge && !nearLengthEdge) {
-      return { mode: "thickness", axis: "x", field: "vThickness" };
-    }
-    if (nearLengthEdge && !nearThicknessEdge) {
-      return { mode: "length", axis: "y", field: "vLength" };
-    }
-    if (nearThicknessEdge && nearLengthEdge) {
-      return Math.abs(local.x - vThicknessPx) < Math.abs(local.y - vLengthPx)
-        ? { mode: "thickness", axis: "x", field: "vThickness" }
-        : { mode: "length", axis: "y", field: "vLength" };
-    }
-    return { mode: "length", axis: "y", field: "vLength" };
-  };
-
-  const handleCornerPointerMove = (corner, event) => {
-    if (selectedCorner && selectedCorner !== corner && !dragRef.current) {
-      return;
-    }
-
-    const intent = getDragIntent(corner, event);
-    setHoverState({ corner, mode: intent.mode });
-  };
-
-  const startDrag = (corner, event) => {
+  const startDrag = (corner, field, event) => {
     if (!onBoxChange || event.button !== 0) {
       return;
     }
 
     setIsTextEditing(false);
-    const isAlreadySelected = selectedCorner === corner;
-    // First click only selects the box. Dragging starts only after it's selected.
     setSelectedCorner(corner);
-    const intent = getDragIntent(corner, event);
-    setHoverState({ corner, mode: intent.mode });
-
-    if (!isAlreadySelected) {
-      event.preventDefault();
-      return;
-    }
-
-    dragRef.current = { corner, mode: intent.mode, axis: intent.axis, field: intent.field };
+    dragRef.current = { corner, field };
+    event.stopPropagation();
     event.preventDefault();
   };
 
   const handleCanvasPointerDown = (event) => {
     const target = event.target;
-    if (target instanceof Element && target.closest(".decorative-arm")) {
+    if (target instanceof Element && target.closest(".l-box-interactive")) {
       return;
     }
     if (target instanceof Element && target.closest(".text-editor-ui")) {
@@ -414,14 +383,12 @@ function BannerCanvas({
     }
 
     setSelectedCorner(null);
-    setHoverState({ corner: null, mode: "size" });
     setIsTextEditing(false);
   };
 
   const handleTextDisplayPointerDown = (event) => {
     event.stopPropagation();
     setSelectedCorner(null);
-    setHoverState({ corner: null, mode: "size" });
     setIsTextEditing(true);
   };
 
@@ -459,6 +426,20 @@ function BannerCanvas({
     return true;
   };
 
+  const renderResizeHandle = (corner, field, position, className, label) => (
+    <button
+      key={`${corner}-${field}`}
+      type="button"
+      className={`arm-handle l-box-interactive ${className}`}
+      style={{
+        left: `${clamp(position.x, 0, 100)}%`,
+        top: `${clamp(position.y, 0, 100)}%`
+      }}
+      aria-label={label}
+      onPointerDown={(event) => startDrag(corner, field, event)}
+    />
+  );
+
   const renderCorner = (key, horizontalClass, verticalClass) => {
     const box = boxes[key];
     if (!box?.enabled) {
@@ -467,43 +448,65 @@ function BannerCanvas({
     const arms = getArmValues(box);
     const isFocused = activeCorner === key;
     const isSelected = selectedCorner === key;
-    const intentMode = isSelected && hoverState.corner === key ? hoverState.mode : "size";
-    const cursorClass = isSelected
-      ? intentMode === "thickness"
-        ? "thickness-cursor"
-        : "size-cursor"
-      : "select-cursor";
+    const handlePositions = getHandlePositions(key, arms);
 
     return (
       <>
         <div
-          className={`decorative-arm ${horizontalClass} ${isFocused ? "active" : ""} ${cursorClass}`}
+          className={`decorative-arm l-box-interactive ${horizontalClass} ${
+            isFocused ? "active" : ""
+          } drag-corner-cursor`}
           style={{
             ...armStyle(key),
             width: `${arms.hLength}%`,
             height: `${arms.hThickness}%`
           }}
-          onPointerDown={(event) => startDrag(key, event)}
-          onPointerMove={(event) => handleCornerPointerMove(key, event)}
-          onPointerEnter={(event) => handleCornerPointerMove(key, event)}
-          onPointerLeave={() =>
-            setHoverState((prev) => (prev.corner === key ? { corner: null, mode: "size" } : prev))
-          }
+          onPointerDown={(event) => startDrag(key, "corner", event)}
         />
         <div
-          className={`decorative-arm ${verticalClass} ${isFocused ? "active" : ""} ${cursorClass}`}
+          className={`decorative-arm l-box-interactive ${verticalClass} ${
+            isFocused ? "active" : ""
+          } drag-corner-cursor`}
           style={{
             ...armStyle(key),
             width: `${arms.vThickness}%`,
             height: `${arms.vLength}%`
           }}
-          onPointerDown={(event) => startDrag(key, event)}
-          onPointerMove={(event) => handleCornerPointerMove(key, event)}
-          onPointerEnter={(event) => handleCornerPointerMove(key, event)}
-          onPointerLeave={() =>
-            setHoverState((prev) => (prev.corner === key ? { corner: null, mode: "size" } : prev))
-          }
+          onPointerDown={(event) => startDrag(key, "corner", event)}
         />
+        {isSelected && (
+          <>
+            {renderResizeHandle(key, "corner", handlePositions.corner, "handle-corner", "Drag corner block")}
+            {renderResizeHandle(
+              key,
+              "hLength",
+              handlePositions.hLength,
+              "handle-length-x",
+              "Resize horizontal arm length"
+            )}
+            {renderResizeHandle(
+              key,
+              "vLength",
+              handlePositions.vLength,
+              "handle-length-y",
+              "Resize vertical arm length"
+            )}
+            {renderResizeHandle(
+              key,
+              "hThickness",
+              handlePositions.hThickness,
+              "handle-thickness-y",
+              "Resize horizontal arm thickness"
+            )}
+            {renderResizeHandle(
+              key,
+              "vThickness",
+              handlePositions.vThickness,
+              "handle-thickness-x",
+              "Resize vertical arm thickness"
+            )}
+          </>
+        )}
       </>
     );
   };
@@ -532,6 +535,7 @@ function BannerCanvas({
       <div className="canvas-frame">
         <div
           ref={canvasRef}
+          id={canvasId}
           className="banner-canvas"
           style={{ ...canvasStyle, ...sizingStyle, aspectRatio }}
           onPointerDown={handleCanvasPointerDown}
@@ -596,8 +600,8 @@ function BannerCanvas({
                     value={fontFamily}
                     onChange={(event) => onFontFamilyChange?.(event.target.value)}
                   >
-                    {FONT_FAMILY_OPTIONS.map((option) => (
-                      <option key={option.label} value={option.value}>
+                    {fontOptions.map((option) => (
+                      <option key={`${option.label}-${option.value}`} value={option.value}>
                         {option.label}
                       </option>
                     ))}
