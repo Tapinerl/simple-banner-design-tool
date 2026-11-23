@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-## MVP features
+## features
 
 - Left controls panel with:
   - background color picker
